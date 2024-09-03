@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Host Stream</title>
+  </head>
+  <body>
+    <h1>Host Stream</h1>
+    <video id="localVideo" autoplay playsinline></video>
+    <button id="startStream">Start Stream</button>
+
+    <script>
+      const startStreamButton = document.getElementById("startStream");
+      const localVideo = document.getElementById("localVideo");
+
+      let mediaRecorder;
+      let ws;
+
+      // Function to start streaming
+      async function startStreaming() {
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({
+            video: true,
+          });
+          localVideo.srcObject = stream;
+
+          // Create WebSocket connection
+          ws = new WebSocket("ws://localhost:3000");
+
+          ws.onopen = () => {
+            console.log("Connected to WebSocket server");
+          };
+
+          ws.onclose = () => {
+            console.log("Disconnected from WebSocket server");
+          };
+
+          // Start recording the stream using MediaRecorder
+          mediaRecorder = new MediaRecorder(stream, {
+            mimeType: "video/webm; codecs=vp8",
+          });
+
+          mediaRecorder.ondataavailable = (event) => {
+            if (event.data.size > 0) {
+              ws.send(event.data); // Send video chunk over WebSocket
+            }
+          };
+
+          mediaRecorder.start(100); // Send video data in 100ms intervals
+        } catch (error) {
+          console.error("Error accessing webcam: ", error);
+        }
+      }
+
+      // Start streaming when the button is clicked
+      startStreamButton.addEventListener("click", startStreaming);
+    </script>
+  </body>
+</html>

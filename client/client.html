@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>HLS Stream Player with Video.js</title>
+    <link href="https://vjs.zencdn.net/8.0.4/video-js.css" rel="stylesheet" />
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        background-color: #f0f0f0;
+        margin: 0;
+        padding: 20px;
+      }
+      #videoContainer {
+        width: 80%;
+        max-width: 800px;
+        margin: 0 auto;
+        background-color: #333;
+        padding: 10px;
+        border-radius: 5px;
+      }
+      .video-js {
+        width: 100%;
+        height: auto;
+        background-color: #000;
+      }
+      #status {
+        color: red;
+        text-align: center;
+        margin-top: 10px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>HLS Stream Player with Video.js</h1>
+    <div id="videoContainer">
+      <video
+        id="video"
+        class="video-js vjs-default-skin"
+        controls
+        autoplay
+        playsinline
+        data-setup="{}"
+      ></video>
+    </div>
+    <p id="status">Loading stream...</p>
+
+    <!-- Include Video.js from a CDN -->
+    <script src="https://vjs.zencdn.net/8.0.4/video.min.js"></script>
+    <script>
+      const video = videojs("video");
+      const status = document.getElementById("status");
+      const hlsUrl = "http://192.168.43.135:8080/hls/stream.m3u8"; // Change to your server's IP if necessary
+
+      video.ready(function () {
+        video.src({
+          src: hlsUrl,
+          type: "application/x-mpegURL",
+        });
+
+        status.textContent = "Stream is live!";
+      });
+
+      video.on("error", function () {
+        status.textContent = "Error loading stream: " + video.error().message;
+        console.error("Video.js Error:", video.error());
+      });
+    </script>
+  </body>
+</html>
