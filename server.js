@@ -1,94 +1,73 @@
 const WebSocket = require('ws');
-const express = require('express');
-const path = require('path');
-const {spawn} = require('child_process');
+const { spawn } = require('child_process');
 
-const app = express();
-const port = 3000;
+const wss = new WebSocket.Server({ port: 8080 });
 
-// Serve static files
-app.use(express.static(path.join(__dirname, 'public')));
-
-// Start the HTTP server
-const server = app.listen(port, () => {
-    console.log(`Server is running on http://localhost:${port}`);
-});
-
-// Create WebSocket server
-const wss = new WebSocket.Server({server});
+let activeClient = null;  // Track the active WebSocket client
 
 wss.on('connection', (ws) => {
-    console.log('New client connected');
+    if (activeClient) {
+        // Reject additional connections
+        ws.close(1000, 'Only one client can connect at a time.');
+        console.log('Connection rejected: Only one client is allowed.');
+        return;
+    }
 
-    // Start ffmpeg process for creating HLS segments
-    const ffmpeg = spawn('ffmpeg', [
-        '-re',                  // Read input at native frame rate
-        '-i', '-',              // Input from pipe (assuming stdin is receiving the video data)
-        '-c:v', 'libx264',      // Encode video using H.264 codec
-        '-preset', 'veryfast',  // Use a veryfast preset for lower latency
-        '-g', '50',             // Set GOP size (keyframe interval)
-        '-sc_threshold', '0',   // Disable scene change detection
-        '-c:a', 'aac',          // Encode audio using AAC codec (optional)
-        '-ar', '44100',         // Set audio sample rate (optional)
-        '-b:a', '128k',         // Set audio bitrate (optional)
-        '-f', 'hls',            // Output format set to HLS
-        '-hls_time', '4',       // Set duration of each segment in seconds
-        '-hls_list_size', '10', // Number of entries in the playlist
-        '-hls_flags', 'delete_segments', // Automatically delete old segments (optional)
-        '-hls_segment_filename', '/tmp/hls/segment_%03d.ts', // Pattern for segment filenames
-        '/tmp/hls/stream.m3u8'  // HLS playlist file output
+    console.log('Client connected');
+    activeClient = ws;  // Set the current client as the active one
+    let totalBytesTransferred = 0;  // To track total bytes transferred
+
+    // Spawn FFmpeg process to handle the video stream
+    const ffmpeg = spawn("ffmpeg", [
+        "-i", "pipe:0",                // Input from stdin (WebSocket data)
+
+        // Video encoding
+        "-c:v", "libx264",             // Encode video with H.264 codec
+        "-preset", "veryfast",         // Use the very fast preset for faster encoding with balanced quality
+        "-tune", "zerolatency",        // Tune for real-time, low-latency streaming
+        "-pix_fmt", "yuv420p",         // Set pixel format to yuv420p for compatibility
+
+        // Bitrate settings
+        "-b:v", "1000k",               // Set video bitrate to 1000 Kbps
+        "-maxrate", "1000k",           // Maximum video bitrate (caps the bitrate to 1000 Kbps)
+        "-bufsize", "2000k",           // Buffer size for smoother streaming
+
+        // Keyframe and GOP settings
+        "-g", "60",                    // Set GOP (keyframe interval) to 60 frames (2 seconds at 30fps)
+        "-keyint_min", "60",           // Minimum interval between keyframes (force keyframe every 60 frames)
+        "-sc_threshold", "0",          // Disable scene change detection for keyframe insertion
+
+        // Audio encoding
+        "-c:a", "aac",                 // Use AAC codec for audio
+        "-b:a", "128k",                // Set audio bitrate to 128 Kbps
+
+        // Output format and RTMP stream
+        "-f", "flv",                   // Output format FLV (for RTMP streaming)
+        "rtmp://localhost:1935/live/stream"  // RTMP URL for NGINX RTMP server
     ]);
 
-    // Listen for data from the WebSocket and write it to ffmpeg's stdin
-    ws.on('message', (message) => {
-        console.log('Received video chunk: ', message.length);
-        try {
-            ffmpeg.stdin.write(message);
-            console.log("Data written to ffmpeg");
-        } catch (error) {
-            console.error('Error writing to ffmpeg stdin:', error);
-        }
+
+
+
+    // Track WebSocket data and bytes transferred
+    ws.on('message', (data) => {
+        totalBytesTransferred += data.length;  // Add the number of bytes in the current message
+        const mbTransferred = (totalBytesTransferred / 1048576).toFixed(2);  // Convert to MB and format to 2 decimal places
+        console.log(`Data transferred: ${mbTransferred} MB`);  // Display the amount of data transferred in MB
+        ffmpeg.stdin.write(data);  // Send WebSocket data to FFmpeg
     });
 
-    // Handle WebSocket connection close event
     ws.on('close', () => {
+        const totalMBTransferred = (totalBytesTransferred / 1048576).toFixed(2);  // Convert to MB
         console.log('Client disconnected');
-        cleanupFfmpegProcess(ffmpeg);
+        ffmpeg.stdin.end();  // End FFmpeg process on WebSocket disconnect
+        console.log(`Total data transferred during the session: ${totalMBTransferred} MB`);  // Display total data transferred in MB
+        activeClient = null;  // Reset active client when the client disconnects
     });
 
-    // Handle WebSocket errors
-    ws.on('error', (err) => {
-        console.error('WebSocket error:', err);
-        cleanupFfmpegProcess(ffmpeg);
+    ws.on('error', (error) => {
+        console.error('WebSocket error: ', error);
+        ffmpeg.stdin.end();  // Handle errors and close FFmpeg
+        activeClient = null;  // Reset active client on error
     });
-
-    // Handle errors from the ffmpeg process
-    ffmpeg.stdin.on('error', (err) => {
-        console.error('ffmpeg stdin error:', err);
-        if (err.code === 'EPIPE') {
-            console.log('EPIPE error: Attempted to write to a closed pipe');
-        }
-    });
-
-    // Capture output and errors from the ffmpeg process
-    ffmpeg.stderr.on('data', (data) => {
-        console.error('ffmpeg stderr:', data.toString());
-    });
-
-    ffmpeg.on('exit', (code, signal) => {
-        console.log(`ffmpeg process exited with code ${code} and signal ${signal}`);
-    });
-
-    ffmpeg.on('error', (err) => {
-        console.error('ffmpeg process error:', err);
-    });
-
-    // Function to clean up the ffmpeg process
-    function cleanupFfmpegProcess(ffmpegProcess) {
-        if (ffmpegProcess && ffmpegProcess.stdin) {
-            ffmpegProcess.stdin.end(); // End the stdin stream
-        }
-        ffmpegProcess.kill('SIGINT'); // Gracefully terminate the ffmpeg process
-    }
 });
-

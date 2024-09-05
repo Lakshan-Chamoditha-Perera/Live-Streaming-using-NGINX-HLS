@@ -1,60 +1,86 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Host Stream</title>
-  </head>
-  <body>
-    <h1>Host Stream</h1>
-    <video id="localVideo" autoplay playsinline></video>
-    <button id="startStream">Start Stream</button>
+<head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>Webcam Streaming</title>
+</head>
+<body>
+<h1>Webcam Streaming</h1>
+<video id="localVideo" autoplay playsinline></video>
+<button id="startStream">Start Stream</button>
+<button id="stopStream" disabled>Stop Stream</button>
 
-    <script>
-      const startStreamButton = document.getElementById("startStream");
-      const localVideo = document.getElementById("localVideo");
+<script>
+    const startStreamButton = document.getElementById("startStream");
+    const stopStreamButton = document.getElementById("stopStream");
+    const localVideo = document.getElementById("localVideo");
 
-      let mediaRecorder;
-      let ws;
+    let mediaRecorder;
+    let ws;
 
-      // Function to start streaming
-      async function startStreaming() {
+    // Function to start streaming
+    async function startStreaming() {
         try {
-          const stream = await navigator.mediaDevices.getUserMedia({
-            video: true,
-          });
-          localVideo.srcObject = stream;
+            const stream = await navigator.mediaDevices.getUserMedia({
+                video: true,
+                audio: true,
+            });
+            localVideo.srcObject = stream; // Show local video feed
 
-          // Create WebSocket connection
-          ws = new WebSocket("ws://localhost:3000");
+            // Create WebSocket connection to the backend server
+            ws = new WebSocket("ws://localhost:8080");
 
-          ws.onopen = () => {
-            console.log("Connected to WebSocket server");
-          };
+            ws.onopen = () => {
+                console.log("WebSocket connection opened");
+            };
 
-          ws.onclose = () => {
-            console.log("Disconnected from WebSocket server");
-          };
+            ws.onclose = () => {
+                console.log("WebSocket connection closed");
+                stopStreaming(); // Stop streaming if the connection is closed
+            };
 
-          // Start recording the stream using MediaRecorder
-          mediaRecorder = new MediaRecorder(stream, {
-            mimeType: "video/webm; codecs=vp8",
-          });
+            ws.onerror = (error) => {
+                console.error("WebSocket error: ", error);
+                stopStreaming(); // Stop streaming if there's a WebSocket error
+            };
 
-          mediaRecorder.ondataavailable = (event) => {
-            if (event.data.size > 0) {
-              ws.send(event.data); // Send video chunk over WebSocket
-            }
-          };
+            // Start recording the video stream using MediaRecorder
+            mediaRecorder = new MediaRecorder(stream, {
+                mimeType: "video/webm; codecs=vp8", // Use VP8 for browser compatibility
+            });
 
-          mediaRecorder.start(100); // Send video data in 100ms intervals
+            mediaRecorder.ondataavailable = (event) => {
+                if (event.data.size > 0 && ws.readyState === WebSocket.OPEN) {
+                    ws.send(event.data); // Send video chunks over WebSocket
+                }
+            };
+
+            mediaRecorder.start(100); // Send video data every 100ms
+
+            // Update button states
+            startStreamButton.disabled = true;
+            stopStreamButton.disabled = false;
+
         } catch (error) {
-          console.error("Error accessing webcam: ", error);
+            console.error("Error accessing webcam: ", error);
         }
-      }
+    }
 
-      // Start streaming when the button is clicked
-      startStreamButton.addEventListener("click", startStreaming);
-    </script>
-  </body>
+    function stopStreaming() {
+        if (mediaRecorder && mediaRecorder.state !== "inactive") {
+            mediaRecorder.stop(); // Stop the media recorder
+        }
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.close(); // Close the WebSocket connection
+        }
+
+        startStreamButton.disabled = false;
+        stopStreamButton.disabled = true;
+    }
+
+    startStreamButton.addEventListener("click", startStreaming);
+    stopStreamButton.addEventListener("click", stopStreaming);
+</script>
+</body>
 </html>
