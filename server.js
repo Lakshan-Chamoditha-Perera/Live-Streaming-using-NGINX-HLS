@@ -2,8 +2,7 @@ const WebSocket = require('ws');
 const { spawn } = require('child_process');
 
 const wss = new WebSocket.Server({ port: 8080 });
-
-let activeClient = null;  // Track the active WebSocket client
+let activeClient = null;
 
 wss.on('connection', (ws) => {
     if (activeClient) {
@@ -14,8 +13,8 @@ wss.on('connection', (ws) => {
     }
 
     console.log('Client connected');
-    activeClient = ws;  // Set the current client as the active one
-    let totalBytesTransferred = 0;  // To track total bytes transferred
+    activeClient = ws;
+    let totalBytesTransferred = 0;
 
     // Spawn FFmpeg process to handle the video stream
     const ffmpeg = spawn("ffmpeg", [
@@ -46,14 +45,10 @@ wss.on('connection', (ws) => {
         "rtmp://localhost:1935/live/stream"  // RTMP URL for NGINX RTMP server
     ]);
 
-
-
-
-    // Track WebSocket data and bytes transferred
     ws.on('message', (data) => {
-        totalBytesTransferred += data.length;  // Add the number of bytes in the current message
-        const mbTransferred = (totalBytesTransferred / 1048576).toFixed(2);  // Convert to MB and format to 2 decimal places
-        console.log(`Data transferred: ${mbTransferred} MB`);  // Display the amount of data transferred in MB
+        totalBytesTransferred += data.length;
+        const mbTransferred = (totalBytesTransferred / 1048576).toFixed(2);
+        console.log(`Data transferred: ${mbTransferred} MB`);
         ffmpeg.stdin.write(data);  // Send WebSocket data to FFmpeg
     });
 
@@ -61,13 +56,13 @@ wss.on('connection', (ws) => {
         const totalMBTransferred = (totalBytesTransferred / 1048576).toFixed(2);  // Convert to MB
         console.log('Client disconnected');
         ffmpeg.stdin.end();  // End FFmpeg process on WebSocket disconnect
-        console.log(`Total data transferred during the session: ${totalMBTransferred} MB`);  // Display total data transferred in MB
-        activeClient = null;  // Reset active client when the client disconnects
+        console.log(`Total data transferred during the session: ${totalMBTransferred} MB`);
+        activeClient = null;
     });
 
     ws.on('error', (error) => {
         console.error('WebSocket error: ', error);
         ffmpeg.stdin.end();  // Handle errors and close FFmpeg
-        activeClient = null;  // Reset active client on error
+        activeClient = null;
     });
 });
