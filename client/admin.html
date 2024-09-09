@@ -29,7 +29,7 @@
             localVideo.srcObject = stream; // Show local video feed
 
             // Create WebSocket connection to the backend server
-            ws = new WebSocket("ws://localhost:8080");
+            ws = new WebSocket("ws://192.168.1.69:9000");
 
             ws.onopen = () => {
                 console.log("WebSocket connection opened");
